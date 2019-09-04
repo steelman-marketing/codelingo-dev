@@ -1,0 +1,105 @@
+tenets:
+  - name: deprecated-dep
+    actions:
+      codelingo/docs:
+        title: Deprecated Dep
+        body: Finds imports of deprecated dependencies.
+      # TODO: add bot/flow for recording how making PRs appending "deprecated" commment
+      # to import lines and another for recording refactor progress
+      codelingo/review:
+        comment: Deprecated dependency, consider replacing it.
+    query: |
+      import codelingo/ast/go
+      go.file(depth = any):
+        @review comment
+        go.import_spec(depth = 2):
+          any_of:
+            go.basic_lit:
+              value as platformValue
+              regex(/^github.com\/codelingo\/platform/, platformValue)
+            go.basic_lit:
+              value as kitValue
+              regex(/^github.com\/codelingo\/kit/, kitValue)
+  - name: platform-call
+    actions:
+      codelingo/docs:
+        title: Platform Call
+        body: Finds gRPC calls to platform which should be routed through the flow server.
+      codelingo/review:
+        comment: Please reroute this call through the flow server.
+    query: |
+      import codelingo/ast/go
+      # Collect methods that call endpoints sitting directly on platform
+      go.type_spec(depth = any):
+        go.ident:
+          name == "CodeLingoService"
+        go.interface_type:
+          go.field_list:
+            go.field:
+              go.names:
+                go.ident:
+                  name as callName
+      # Find locations where those methods are called on the client
+      go.file(depth = any):
+        exclude:
+          filename as serviceFilename
+          regex(/service/, serviceFilename)
+        @review comment
+        go.call_expr(depth = any):
+          go.selector_expr:
+            # TODO: improve speed by checking the type of the caller (once it's available)
+            # and remove $callName
+            go.ident: 
+              name as callName
+# TODO: bug caused by this query; uncomment once fixed
+#  - name: invalid-error-print
+#    doc: |
+#      Find places errors are being incorrectly output to the user.
+#    actions:
+#      codelingo/review:
+#        comment: |
+#          Errors should only be output to the user in app/util/errors.go
+#    query: |
+#      import (
+#        codelingo/ast/go
+#      )
+#
+#      go.file(depth = any):
+#        exclude:
+#          filename as errorsFilename
+#          regex(/^(\.\/)?app\/util\/errors.go$/, errorsFilename)
+#        any_of:
+#          go.import_spec(depth = any): # aliased import
+#            go.ident:
+#              name as packageName
+#            go.basic_lit:
+#              value == "fmt"
+#          go.import_spec(depth = any): # unaliased import
+#            exclude:
+#              go.ident
+#            go.basic_lit:
+#              value == "fmt"
+#              value as packageName
+#        @review comment
+#        go.call_expr(depth = any):
+#          any_of:
+#            go.selector_expr:  # Calls like fmt.Print(err) or fmt.Fprint(os.Stderr, err)
+#              go.ident:
+#                name as packageName
+#              go.ident:
+#                name as printName
+#                regex(/^(P|Fp)rint.*$/, printName)
+#            go.selector_expr:  # Calls like log.Print(err)
+#              go.ident:
+#                name == "log"
+#            go.selector_expr:  # Calls like Stderr.Write(err)
+#              go.ident:
+#                name == "Stderr"
+#              go.ident:
+#                name == "Write"
+#          go.args:
+#            any_of:
+#              go.ident(depth = any):
+#                name == "err"
+#              go.ident(depth = any):
+#                type == "error"
